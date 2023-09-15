@@ -181,32 +181,56 @@ if ($osVersion.Major -eq 6 -and ($osVersion.Minor -eq 2 -or $osVersion.Minor -eq
   # Extract the version from the Comments section
   $latestVersion = [regex]::Matches($installerVersion, '\d+\.\d+\.\d+\.\d+')[0].Value
   if ($installedVersion -lt $latestVersion) {
-    Write-Host "Installing Google Chrome $latestVersion..."
-    Install-Msi -File "${installerPath}"
+	Write-Host "Installing Google Chrome $latestVersion..."
+	Install-Msi -File "${installerPath}"
   } elseif ($installedVersion -gt $latestVersion) {
-    Write-Warning "Installed version ($installedVersion) is greater than the latest version ($latestVersion)"
-    # Maybe someday I will find a way to do this scriptmatically
-    Write-Warning "Either you didn't locate the latest version, then edit the $latestVersion variable in this script, or you need to remove the installed version and download the latest version manually."
+	Write-Warning "Installed version ($installedVersion) is greater than the latest version ($latestVersion)"
+	# There was a time when Google supported Win8/2012 and allowed for installation of versions greater than major 109.
+  # Those installations would cause the version check in this script to fail, because, at this date (2023-09-15), Win8/2012
+  # are on the chopping block to be sunsetted, and they only supply major version 109 to those OS's.  As such, when 
+  # performing a version check, the installed version would be greater than the latest version avilable for download.  This
+  # section of the script attempts to correct this issue by removing the higher version (since it's no longer supported
+  # and installs the latest supported version.
+    Write-Warning "Removing unsupported verison of Chrome..."
+    $search = "Google Chrome"
+    $installed = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |  Select-Object DisplayName, UninstallString
+    $installed += Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* | Select-Object DisplayName, UninstallString
+    $result =$installed | ?{ $_.DisplayName -ne $null } | Where-Object {$_.DisplayName -like $search } 
+
+    if ($result.uninstallstring -like "msiexec*") {
+      $args=(($result.UninstallString -split ' ')[1] -replace '/I','/X ') + ' /q'
+      Start-Process msiexec.exe -ArgumentList $args -Wait
+    } else {
+      Start-Process $result.UninstallString -Wait
+    }
+    Write-Host "Installing Chrome ..."
+    Install-Msi -File "${installerPath}"
   } elseif ($installedVersion -eq $latestVersion) {
-    Write-Host "Chrome is already up to date."
+	  Write-Host "Chrome is already up to date."
+  } elseif ($installedVersion -eq $null) {
+    Write-Host "Unable to determine the version of Chrome that is installed."
+  } elseif ($latestVersion -eq $null) {  
+    Write-Host "Unable to determine the version from the installer that was downloaded"
+  } else {
+    Write-Host "Something unexpected happened while comparing the Chrome installation candidate for Windows 8 / Server 2012 to the copy that is currently installed."
   }
   exit
 }
 
 # Run this against Windows 10 / Server 2016 or greater
 if ($osVersion.Major -ge 10) {
-    # Check the installed version of Chrome
-    $latestVersionUrl = "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows&num=1"
-    $latestVersion = (Invoke-RestMethod $latestVersionUrl)[0].version
-    if ($installedVersion -lt $latestVersion) {
-        Write-Output "Downloading and installing Google Chrome $latestVersion..."
-        $downloadUrl = "http://dl.google.com/chrome/install/latest/chrome_installer.exe"
-        $installerPath = "$env:TEMP\chrome_installer.exe"
-        Invoke-WebRequest $downloadUrl -OutFile $installerPath
-        Start-Process -FilePath $installerPath -Args "/silent /install" -Wait
-    }
-    else {
-        Write-Output "Google Chrome is already up to date."
-        exit
-    }
+	# Check the installed version of Chrome
+	$latestVersionUrl = "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows&num=1"
+	$latestVersion = (Invoke-RestMethod $latestVersionUrl)[0].version
+	if ($installedVersion -lt $latestVersion) {
+		Write-Output "Downloading and installing Google Chrome $latestVersion..."
+		$downloadUrl = "http://dl.google.com/chrome/install/latest/chrome_installer.exe"
+		$installerPath = "$env:TEMP\chrome_installer.exe"
+		Invoke-WebRequest $downloadUrl -OutFile $installerPath
+		Start-Process -FilePath $installerPath -Args "/silent /install" -Wait
+	}
+	else {
+		Write-Output "Google Chrome is already up to date."
+		exit
+	}
 }
